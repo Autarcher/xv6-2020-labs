@@ -149,6 +149,7 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  p->trace_mask = 0;
   p->state = UNUSED;
 }
 
@@ -296,7 +297,8 @@ fork(void)
   np->state = RUNNABLE;
 
   release(&np->lock);
-
+  // copy parent task_mask to child  
+  np->trace_mask = p->trace_mask;
   return pid;
 }
 
@@ -692,4 +694,19 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+int
+countproc(void) {
+ struct proc *p;
+ int n = 0;
+
+ for (p = proc; p < &proc[NPROC]; p++) {
+  acquire(&p->lock);
+  if (p->state != UNUSED) {
+   n++;
+  }
+  release(&p->lock);
+ }
+
+ return n;
 }
