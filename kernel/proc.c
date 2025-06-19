@@ -121,6 +121,22 @@ found:
     return 0;
   }
 
+  // 新增：为进程创建独立的内核页表
+  p->kernel_pagetable = proc_kvminit();
+  if (p->kernel_pagetable == 0) {
+   freeproc(p);
+   release(&p->lock);
+   return 0;
+  }
+  // 映射内核栈
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
+  uint64 va = KSTACK((int) (p - proc));
+  uvmmap(p->kernel_pagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W, 1);
+  p->kstack = va;
+  
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -142,6 +158,11 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
+  // 释放申请的用户一级页表的内核镜像
+  uvmunmap(p->kernel_pagetable, p->kstack, 1, 1);
+  // 释放申请的内核页
+  p->kstack = 0;
+
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -453,6 +474,14 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+
+// 用来传递用户的内核页表到SATP寄存器，这样内核就能到用户页表的内核映射了
+void
+proc_inithart(pagetable_t kpt){
+  w_satp(MAKE_SATP(kpt));
+  sfence_vma();
+}
+
 void
 scheduler(void)
 {
@@ -473,8 +502,14 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        // 加载用户页表的内核镜像地址
+        proc_inithart(p->kernel_pagetable);
+
+        // 切换cpu的上下文, 这里到kvminithart();之前cpu就已经执行完程序了？
         swtch(&c->context, &p->context);
 
+        // 切回全局的内核页表
+        kvminithart();
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
@@ -696,4 +731,23 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// 递归释放内核页表
+void
+proc_freekernelpt(pagetable_t kernelpt)
+{
+  // similar to the freewalk method
+  // there are 2^9 = 512 PTEs in a page table.
+  for(int i = 0; i < 512; i++){
+    pte_t pte = kernelpt[i];
+    if(pte & PTE_V){
+      kernelpt[i] = 0;
+      if ((pte & (PTE_R|PTE_W|PTE_X)) == 0){
+        uint64 child = PTE2PA(pte);
+        proc_freekernelpt((pagetable_t)child);
+      }
+    }
+  }
+  kfree((void*)kernelpt);
 }

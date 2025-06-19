@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h" 
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -71,8 +73,10 @@ kvminithart()
 pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
-  if(va >= MAXVA)
+  if(va >= MAXVA) {
     panic("walk");
+  }
+    
 
   for(int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
@@ -132,7 +136,7 @@ kvmpa(uint64 va)
   pte_t *pte;
   uint64 pa;
   
-  pte = walk(kernel_pagetable, va, 0);
+  pte = walk(myproc()->kernel_pagetable, va, 0);
   if(pte == 0)
     panic("kvmpa");
   if((*pte & PTE_V) == 0)
@@ -439,4 +443,68 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+// 辅助打印函数
+void vmprint_recursive(pagetable_t pagetable, int level) {
+    // there are 2^9 = 512 PTEs in a page table
+  for (int i = 0; i < 512; i++) {
+    pte_t pte = pagetable[i];
+    if (pte & PTE_V) {
+      // 获得物理地址
+      uint64 pa = PTE2PA(pte);
+
+      // 打印缩进
+      for (int l = 0; l < level; l++) {
+        printf("..");
+      }
+
+      // 打印当前pte
+      printf("%d: pte %p pa %p\n", i, pte, pa);
+
+      // 如果是下一级页表项
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0) {
+        vmprint_recursive((pagetable_t)pa, level + 1);
+      }
+    }
+  }
+}
+// print a page table
+void
+vmprint(pagetable_t pagetable) {
+  printf("page table %p\n", pagetable);
+  vmprint_recursive(pagetable, 1);
+}
+
+
+// 实现用户page他变了到内核pagetable的映射
+void
+uvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm, int step)
+{
+  // printf("step: %d\n", step);
+  if(mappages(pagetable, va, sz, pa, perm) != 0) {
+    panic("uvmmap");
+  }
+    
+}
+pagetable_t
+proc_kvminit(void)
+{
+  pagetable_t kernelpt = uvmcreate();
+  if (kernelpt == 0) return 0;
+  uvmmap(kernelpt, UART0, UART0, PGSIZE, PTE_R | PTE_W, 1);
+  uvmmap(kernelpt, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W, 2);
+  uvmmap(kernelpt, CLINT, CLINT, 0x10000, PTE_R | PTE_W, 3);
+  uvmmap(kernelpt, PLIC, PLIC, 0x400000, PTE_R | PTE_W, 4);
+  uvmmap(kernelpt, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X, 5);
+  uvmmap(kernelpt, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W, 6);
+  uvmmap(kernelpt, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X, 7);
+  return kernelpt;
+}
+
+// 释放内核页表
+void
+proc_kvmfree(pagetable_t pagetable)
+{
+  uvmunmap(pagetable, 0, 512, 0);  // 仅解除映射，不释放物理页
+  kfree((void*)pagetable);        // 释放内核一级页表页本身，不释放用户的页表
 }

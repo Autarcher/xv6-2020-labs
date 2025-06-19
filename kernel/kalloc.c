@@ -65,12 +65,26 @@ kfree(void *pa)
 // Allocate one 4096-byte page of physical memory.
 // Returns a pointer that the kernel can use.
 // Returns 0 if the memory cannot be allocated.
+int freelistcount(){
+  struct run *temp = kmem.freelist;
+  int count = 0;
+
+  while (temp != 0 && count <= 3) {
+    temp = temp->next;
+    count += 1;
+  }
+  return count;
+}
 void *
 kalloc(void)
 {
   struct run *r;
 
   acquire(&kmem.lock);
+  if (freelistcount() < 4) {
+    printf("kernel freelist free:%d\n", freelistcount());
+  }
+  
   r = kmem.freelist;
   if(r)
     kmem.freelist = r->next;
