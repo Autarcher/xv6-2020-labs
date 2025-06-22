@@ -46,6 +46,8 @@ Vscode调试配置教程:https://zhuanlan.zhihu.com/p/501901665（xv6的启动�
 > 简单的调试
 >
 > ```shell
+> #设置gdb的自动加载路径(不推荐，因为有安全风险, 也可以直接把/替换为你的项目路径)
+> echo "set auto-load safe-path /" >> ~/.gdbinit
 > #在xv6目录下执行
 > make qemu-gdb
 > #在另外一个窗口的相同目录下执行
