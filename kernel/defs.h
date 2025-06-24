@@ -183,6 +183,9 @@ pagetable_t     proc_kvminit(void); // 用于内核页表的初始化
 void            proc_inithart(pagetable_t); // 将进程的内核页表保存到SATP寄存器
 void            proc_kvmfree(pagetable_t pagetable); // 释放内核页表
 void            uvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm, int step);
+void            u2kvmcopy(pagetable_t pagetable, pagetable_t kernelpt, uint64 oldsz, uint64 newsz); //用户的页表的内核页表映射
+uint64          kvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz); //删除进程的内核页表的映射
+pte_t *         walk(pagetable_t pagetable, uint64 va, int alloc);
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);
@@ -227,3 +230,7 @@ int             sockread(struct sock *, uint64, int);
 int             sockwrite(struct sock *, uint64, int);
 void            sockrecvudp(struct mbuf*, uint32, uint16, uint16);
 #endif
+
+// vmcopyin.c
+int             copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len);
+int             copyinstr_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max);

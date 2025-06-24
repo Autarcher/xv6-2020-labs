@@ -246,6 +246,9 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+  // 第一个用户进程也要用自己的内核页表映射
+  u2kvmcopy(p->pagetable, p->kernel_pagetable, 0, p->sz);
+
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -268,11 +271,20 @@ growproc(int n)
 
   sz = p->sz;
   if(n > 0){
+    // 加上PLIC限制
+    if (PGROUNDUP(sz + n) >= PLIC){
+      return -1;
+    }
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    // 映射对应的内核页表项
+    u2kvmcopy(p->pagetable, p->kernel_pagetable, p->sz, p->sz + n);
   } else if(n < 0){
+    // 删除进程的页表映射和物理页
     sz = uvmdealloc(p->pagetable, sz, sz + n);
+    // 删除进程内核页表的物理映射
+    kvmdealloc(p->kernel_pagetable, sz, sz + n);
   }
   p->sz = sz;
   return 0;
@@ -301,11 +313,7 @@ fork(void)
   np->sz = p->sz;
 
   // 进程用户态页表的内核映射
-  // if(uvmcopy(p->kernel_pagetable, np->kernel_pagetable, p->sz) < 0){
-  //   freeproc(np);
-  //   release(&np->lock);
-  //   return -1;
-  // }
+  u2kvmcopy(np->pagetable, np->kernel_pagetable, 0, np->sz);
 
   np->parent = p;
 

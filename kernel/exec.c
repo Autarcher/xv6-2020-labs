@@ -51,6 +51,10 @@ exec(char *path, char **argv)
     uint64 sz1;
     if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0)
       goto bad;
+    // 判断是否超出PLIC
+    if (sz1 >= PLIC) 
+      goto bad;
+
     sz = sz1;
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
@@ -74,7 +78,7 @@ exec(char *path, char **argv)
   uvmclear(pagetable, sz-2*PGSIZE);
   sp = sz;
   stackbase = sp - PGSIZE;
-
+  
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
     if(argc >= MAXARG)
@@ -108,6 +112,22 @@ exec(char *path, char **argv)
       last = s+1;
   safestrcpy(p->name, last, sizeof(p->name));
     
+  // 拷贝得到用户的内核页表
+    /*
+    ** 清理久的内核页表, 需要判断内核页表是否被有效映射，应为exec函数在执行初始化进程页表的时候没有
+    ** 一边初始化进程页表一边做内核页表的映射，如果在内核映射之前exex goto bad就会导致内核页表映射失败
+    ** ，再次exec时可能uvmunmap到没有映射的内核页表因此要做检测
+    */ 
+  // if (p->kernel_pagetable != 0) uvmunmap(p->kernel_pagetable, 0, PGROUNDUP(oldsz)/PGSIZE, 0);
+  for (uint64 a = 0; a < PGROUNDUP(oldsz); a += PGSIZE) {
+    pte_t *pte = walk(p->kernel_pagetable, a, 0);
+    if (pte && (*pte & PTE_V)) {
+      uvmunmap(p->kernel_pagetable, a, 1, 0);
+    }
+  }
+    // 载入新的用户页表
+  u2kvmcopy(pagetable, p->kernel_pagetable, 0, sz);
+
   // Commit to the user image.
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
