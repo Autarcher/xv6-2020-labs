@@ -81,9 +81,9 @@ kalloc(void)
   struct run *r;
 
   acquire(&kmem.lock);
-  if (freelistcount() < 4) {
-    printf("kernel freelist free:%d\n", freelistcount());
-  }
+  // if (freelistcount() < 4) {
+  //   printf("kernel freelist free:%d\n", freelistcount());
+  // }
   
   r = kmem.freelist;
   if(r)

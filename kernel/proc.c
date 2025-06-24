@@ -34,12 +34,13 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      // 删除为所有进程预分配内核页表，变为在创建进程的时候再创建内核栈
+      // char *pa = kalloc();
+      // if(pa == 0)
+      //   panic("kalloc");
+      // uint64 va = KSTACK((int) (p - proc));
+      // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      // p->kstack = va;
   }
   kvminithart();
 }
@@ -128,7 +129,7 @@ found:
    release(&p->lock);
    return 0;
   }
-  // 映射内核栈
+  // 映射内核栈, 释放进程的时候记得释放内核栈
   char *pa = kalloc();
   if(pa == 0)
     panic("kalloc");
@@ -155,13 +156,16 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
-  if(p->pagetable)
-    proc_freepagetable(p->pagetable, p->sz);
+  if(p->pagetable) proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
-  // 释放申请的用户一级页表的内核镜像
+
+  // 释放申请的内核栈
   uvmunmap(p->kernel_pagetable, p->kstack, 1, 1);
-  // 释放申请的内核页
   p->kstack = 0;
+
+  // 释放申请的用户一级页表的内核镜像
+  if (p->kernel_pagetable) proc_kvmfree(p->kernel_pagetable);
+  p->kernel_pagetable = 0;
 
   p->sz = 0;
   p->pid = 0;
@@ -295,6 +299,13 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // 进程用户态页表的内核映射
+  // if(uvmcopy(p->kernel_pagetable, np->kernel_pagetable, p->sz) < 0){
+  //   freeproc(np);
+  //   release(&np->lock);
+  //   return -1;
+  // }
 
   np->parent = p;
 

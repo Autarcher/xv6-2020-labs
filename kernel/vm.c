@@ -138,9 +138,9 @@ kvmpa(uint64 va)
   
   pte = walk(myproc()->kernel_pagetable, va, 0);
   if(pte == 0)
-    panic("kvmpa");
+    panic("kvmpa pte == 0");
   if((*pte & PTE_V) == 0)
-    panic("kvmpa");
+    panic("kvmpa pte invalid");
   pa = PTE2PA(*pte);
   return pa+off;
 }
@@ -505,6 +505,15 @@ proc_kvminit(void)
 void
 proc_kvmfree(pagetable_t pagetable)
 {
-  uvmunmap(pagetable, 0, 512, 0);  // 仅解除映射，不释放物理页
-  kfree((void*)pagetable);        // 释放内核一级页表页本身，不释放用户的页表
+  //  there are 2^9 = 512 PTEs in a page table.
+  for (int i = 0; i< 512; i++) {
+    pte_t pte = pagetable[i];
+    uint64 child = PTE2PA(pte);
+    if ((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0) {
+      // this PTE points to a lower-level page table
+      proc_kvmfree((pagetable_t)child);
+      pagetable[i] = 0;
+    }
+  }
+  kfree((void*)pagetable);
 }
