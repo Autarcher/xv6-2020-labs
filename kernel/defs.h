@@ -64,6 +64,8 @@ void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
 
+int             free_page_num(void); // 返回剩余的空闲页数
+
 // log.c
 void            initlog(int, struct superblock*);
 void            log_write(struct buf*);

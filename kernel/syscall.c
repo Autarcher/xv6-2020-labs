@@ -7,6 +7,9 @@
 #include "syscall.h"
 #include "defs.h"
 
+extern int lazy_alloc(pagetable_t pagetable, uint64 va);
+
+
 // Fetch the uint64 at addr from the current process.
 int
 fetchaddr(uint64 addr, uint64 *ip)
@@ -18,6 +21,30 @@ fetchaddr(uint64 addr, uint64 *ip)
     return -1;
   return 0;
 }
+
+// 为了修复用户态传入没有经过page fault的地址
+// Fetch the uint64 at addr from the current process.
+int
+fetchaddr_(uint64 addr, uint64 *ip)
+{
+  struct proc *p = myproc();
+
+  if(addr >= p->sz || addr+sizeof(uint64) > p->sz)
+    return -1;
+
+  if(copyin(p->pagetable, (char *)ip, addr, sizeof(*ip)) < 0){
+    // 👉 lazy alloc retry
+    if (lazy_alloc(p->pagetable, addr) == 0 &&
+        copyin(p->pagetable, (char *)ip, addr, sizeof(*ip)) == 0)
+      return 0;
+
+    return -1;
+  }
+
+  return 0;
+}
+
+
 
 // Fetch the nul-terminated string at addr from the current process.
 // Returns length of string, not including nul, or -1 for error.
@@ -68,6 +95,26 @@ int
 argaddr(int n, uint64 *ip)
 {
   *ip = argraw(n);
+
+  // // --add
+  // struct proc *p = myproc();
+  // if (walkaddr(p->pagetable, *ip) == 0) {
+  //   if (PGROUNDUP(*ip) - 1 < *ip && *ip < p->sz) {
+  //     char* pa = kalloc();
+  //     if (pa == 0) return -1; // Out of memory
+  //     memset(pa, 0, PGSIZE);
+
+  //     // 将物理页映射到用户页表
+  //     if (mappages(p->pagetable, *ip, PGSIZE, (uint64)pa, PTE_R | PTE_W | PTE_U) != 0) {
+  //       kfree(pa);
+  //       printf("argaddr(): mappages failed for %p pid=%d\n", *ip, p->pid);
+  //       return -1;
+  //     }
+  //   } else {
+  //     return -1; // Invalid address
+  //   }
+  // }
+  // // --add end 
   return 0;
 }
 

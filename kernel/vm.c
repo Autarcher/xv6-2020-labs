@@ -15,6 +15,8 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
+extern int lazy_alloc(pagetable_t pagetable, uint64 va); // 在文件顶部声明
+
 /*
  * create a direct-map page table for the kernel.
  */
@@ -181,9 +183,11 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      continue; // 因为是lazy allocation，可能没有映射到物理页
+      // panic("uvmunmap: walk");
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      continue; // 因为是lazy allocation，可能没有映射到物理页
+      // panic("uvmunmap: not mapped");
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -296,6 +300,7 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 {
   if(sz > 0)
     uvmunmap(pagetable, 0, PGROUNDUP(sz)/PGSIZE, 1);
+  //printf("uvmfree: freeing page num %d\n", PGROUNDUP(sz)/PGSIZE);
   freewalk(pagetable);
 }
 
@@ -315,9 +320,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      continue; // 可能是因为lazy allocation，可能没有映射到物理页
+      // panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      continue; // 可能是因为lazy allocation，可能没有映射到物理页
+      // panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -373,6 +380,39 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   return 0;
 }
 
+// 更改逻辑为了修复用户态传入没有经过page fault的地址
+int
+copyout_(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
+{
+  uint64 n, va0, pa0;
+
+  while(len > 0){
+    va0 = PGROUNDDOWN(dstva);
+    pa0 = walkaddr(pagetable, va0);
+
+    if(pa0 == 0){
+      // 👉 lazy allocation fallback
+      if (lazy_alloc(pagetable, va0) < 0)
+        return -1;
+      pa0 = walkaddr(pagetable, va0); // 重试 walk
+      if (pa0 == 0)
+        return -1;
+    }
+
+    n = PGSIZE - (dstva - va0);
+    if(n > len)
+      n = len;
+
+    memmove((void *)(pa0 + (dstva - va0)), src, n);
+
+    len -= n;
+    src += n;
+    dstva = va0 + PGSIZE;
+  }
+
+  return 0;
+}
+
 // Copy from user to kernel.
 // Copy len bytes to dst from virtual address srcva in a given page table.
 // Return 0 on success, -1 on error.
@@ -397,6 +437,40 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
   }
   return 0;
 }
+
+// 更改逻辑为了修复用户态传入没有经过page fault的地址
+
+int
+copyin_(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
+{
+  uint64 n, va0, pa0;
+
+  while(len > 0){
+    va0 = PGROUNDDOWN(srcva);
+    pa0 = walkaddr(pagetable, va0);
+
+    if(pa0 == 0){
+      // 尝试懒分配
+      if (lazy_alloc(pagetable, va0) < 0)
+        return -1;
+      pa0 = walkaddr(pagetable, va0);  // retry
+      if (pa0 == 0)
+        return -1;
+    }
+
+    n = PGSIZE - (srcva - va0);
+    if(n > len)
+      n = len;
+    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
+
+    len -= n;
+    dst += n;
+    srcva = va0 + PGSIZE;
+  }
+
+  return 0;
+}
+
 
 // Copy a null-terminated string from user to kernel.
 // Copy bytes to dst from virtual address srcva in a given page table,
@@ -439,4 +513,29 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+
+// 用于在用户页表中懒分配并映射一个物理页
+int lazy_alloc(pagetable_t pagetable, uint64 va) {
+  va = PGROUNDDOWN(va);
+
+  pte_t *pte = walk(pagetable, va, 0);
+  if (pte && (*pte & PTE_V)) {
+    // 已映射，直接返回
+    return 0;
+  }
+
+  char *pa = kalloc();
+  if (pa == 0)
+    return -1;
+
+  memset(pa, 0, PGSIZE);
+
+  if (mappages(pagetable, va, PGSIZE, (uint64)pa, PTE_R | PTE_W | PTE_X | PTE_U) < 0) {
+    kfree(pa);
+    return -1;
+  }
+
+  return 0;
 }

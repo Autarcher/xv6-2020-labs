@@ -150,6 +150,7 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  // printf("freeproc: current free page %d\n", free_page_num());
 }
 
 // Create a user page table for a given process,
