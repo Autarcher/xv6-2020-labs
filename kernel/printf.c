@@ -122,6 +122,8 @@ panic(char *s)
   printf(s);
   printf("\n");
   panicked = 1; // freeze uart output from other CPUs
+  // 调用backtrace函数
+  backtrace();
   for(;;)
     ;
 }
@@ -131,4 +133,22 @@ printfinit(void)
 {
   initlock(&pr.lock, "pr");
   pr.locking = 1;
+}
+
+
+// 添加Backtrace函数
+void
+backtrace(void)
+{
+  printf("Backtrace:\n");
+  // 读取当前进程的栈帧
+  uint64 fp = r_fp();
+  // xv6 的用户栈只分配的一页
+  while(PGROUNDUP(fp) - PGROUNDDOWN(fp) == PGSIZE) {
+    // 打印栈帧地址, RISC-V架构下栈帧地址存储在fp寄存器中, 返回地址对于fp的偏移量为8
+    uint64 ret_addr = *(uint64*)(fp - 8);
+    printf("%p\n", ret_addr);
+    // 获取上一个栈帧地址
+    fp = *(uint64 *)(fp - 16); // RISC-V架构下栈帧指针(fp)的偏移量为16字节
+  }
 }

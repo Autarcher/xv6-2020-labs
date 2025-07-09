@@ -77,8 +77,22 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  // 如果已经经过的滴答数超过报警间隔，调用报警处理函数, 一次滴答是cpu的一个时间片
+  // 时钟中断也会触发usertrap
+  if(which_dev == 2) {
+    // --add
+    if (p->alarm_interval !=0 && ++p->ticks_count >= p->alarm_interval && p->is_alarming == 0) {
+      // 保存寄存器内容:当前trapframe到alarm_trampframe
+      memmove((void*)p->alarm_trapframe, (void*)p->trapframe, sizeof(struct trapframe));
+      p->is_alarming = 1; // 设置正在报警标志， 如果不是报警则不保存当前trampframe到alarm_trapframe
+      // 设置trapframe的寄存器内容
+      p->trapframe->epc = (uint64)p->alarm_handler; // 设置
+      p->ticks_count = 0; // 重置滴答数
+    }
+    // --end add
     yield();
+  }
+    
 
   usertrapret();
 }

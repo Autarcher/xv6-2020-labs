@@ -60,6 +60,10 @@ sys_sleep(void)
 
   if(argint(0, &n) < 0)
     return -1;
+  
+  // 插入backtrace函数调用
+  backtrace();
+
   acquire(&tickslock);
   ticks0 = ticks;
   while(ticks - ticks0 < n){
@@ -94,4 +98,21 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// 设置Alarm
+uint64
+sys_sigalarm(void) {
+  if(argint(0, &myproc()->alarm_interval) < 0 ||
+    argaddr(1, (uint64*)&myproc()->alarm_handler) < 0)
+    return -1;
+
+  return 0;
+}
+
+uint64
+sys_sigreturn(void) {
+  memmove(myproc()->trapframe, myproc()->alarm_trapframe, sizeof(struct trapframe));
+  myproc()->is_alarming = 0;
+  return 0;
 }

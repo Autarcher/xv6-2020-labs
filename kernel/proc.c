@@ -127,6 +127,17 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // 添加报警相关字段的初始化
+  if ((p->alarm_trapframe = (struct trampoline *)kalloc()) == 0) {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  p->is_alarming = 0; // 初始化报警状态
+  p->alarm_interval = 0; // 初始化报警间隔
+  p->alarm_handler = 0; // 初始化报警处理函数
+  p->ticks_count = 0; // 初始化经过的滴答数
+
   return p;
 }
 
@@ -150,6 +161,17 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  // 删除报警相关字段的内容
+  if (p->alarm_trapframe) {
+    kfree((void*)p->alarm_trapframe);
+  }
+  p->alarm_trapframe = 0;
+  p->is_alarming = 0;
+  p->alarm_interval = 0;
+  p->alarm_handler = 0;
+  p->ticks_count = 0;  
+  
 }
 
 // Create a user page table for a given process,
