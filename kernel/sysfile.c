@@ -71,11 +71,23 @@ sys_read(void)
 {
   struct file *f;
   int n;
-  uint64 p;
+  uint64 addr;
 
-  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
+  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &addr) < 0)
     return -1;
-  return fileread(f, p, n);
+
+  // lazy_wr_alloc函数用于处理当进程调用如read、write系统调用时传递合法的虚拟地址参数，但该地址实际的物理页未分配的情况
+  struct proc *p = myproc();
+  for (uint64 va = PGROUNDDOWN(addr); va < addr + n; va += PGSIZE) {
+    if (walkaddr(p->pagetable, va) == 0) {
+      // 如果va超出进程的地址空间范围，或者在栈顶以下一页，则不允许分配
+      if (lazy_wr_alloc(p, va) < 0) {
+        return -1;
+      }
+    }
+  }
+
+  return fileread(f, addr, n);
 }
 
 uint64
@@ -83,12 +95,23 @@ sys_write(void)
 {
   struct file *f;
   int n;
-  uint64 p;
+  uint64 addr;
 
-  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &p) < 0)
+  if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argaddr(1, &addr) < 0)
     return -1;
 
-  return filewrite(f, p, n);
+  // lazy_wr_alloc函数用于处理当进程调用如read、write系统调用时传递合法的虚拟地址参数，但该地址实际的物理页未分配的情况
+  struct proc *p = myproc();
+  for (uint64 va = PGROUNDDOWN(addr); va < addr + n; va += PGSIZE) {
+    if (walkaddr(p->pagetable, va) == 0) {
+      // 如果va超出进程的地址空间范围，或者在栈顶以下一页，则不允许分配
+      if (lazy_wr_alloc(p, va) < 0) {
+        return -1;
+      }
+    }
+  }
+
+  return filewrite(f, addr, n);
 }
 
 uint64
@@ -464,6 +487,15 @@ sys_pipe(void)
 
   if(argaddr(0, &fdarray) < 0)
     return -1;
+
+  // lazy_wr_alloc函数用于处理当进程调用如pipe系统调用时传递合法的虚拟地址参数，但该地址实际的物理页未分配的情况
+  for(uint64 va = PGROUNDDOWN(fdarray); va < PGROUNDUP(fdarray + 2*sizeof(fd0)); va += PGSIZE) {
+    if(walkaddr(p->pagetable, va) == 0) {
+      if(lazy_wr_alloc(p, va) < 0)
+        return -1;
+    }
+  }
+  
   if(pipealloc(&rf, &wf) < 0)
     return -1;
   fd0 = -1;

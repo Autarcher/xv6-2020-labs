@@ -21,6 +21,8 @@ exec(char *path, char **argv)
   pagetable_t pagetable = 0, oldpagetable;
   struct proc *p = myproc();
 
+  // printf("exec: current free page %d\n", free_page_num());
+
   begin_op();
 
   if((ip = namei(path)) == 0){

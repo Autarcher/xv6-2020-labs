@@ -16,6 +16,10 @@ void kernelvec();
 
 extern int devintr();
 
+// 应用来自kalloc.c的全局变量
+extern int allocated_pages;
+extern int freed_pages;
+
 void
 trapinit(void)
 {
@@ -67,6 +71,40 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 15 || r_scause() == 13 || r_scause() == 12) {
+    // 处理缺页错误 15是存储指令访问无效页， 13是加载指令访问无效页
+    uint64 fault_va = r_stval(); // 获取触发异常的虚拟地址
+    // printf("usertrap(): current allocated pages: %d, fault_va number=%d pid=%d, scause:%d\n", 
+    //        p->sz / PGSIZE, fault_va / PGSIZE, p->pid, r_scause());
+    if (fault_va >= MAXVA || fault_va < PGROUNDDOWN(p->trapframe->sp - 1) || fault_va >= p->sz) {
+      // 如果访问的地址不在用户空间范围内，或者小于栈顶地址，则报错
+      // printf("usertrap(): unexpected fault_va pages %d, current allocation pages %d\n", fault_va / PGSIZE, p->sz / PGSIZE);
+      p->killed = 1;
+    } else {
+      // int free_pages = free_page_num(); // 获取当前空闲页数
+      // if (1) {
+      //   // 如果没有空闲页，直接报错
+      //   printf("usertrap: current free page %d, pid: %d\n", free_page_num(), p->pid);
+      //   printf("usertrap(): unexpected fault_va pages %d, current allocation pages %d\n", fault_va / PGSIZE, p->sz / PGSIZE);
+      //   // printf("usertrap: alloc=%d, free=%d\n", allocated_pages, freed_pages);
+      // }
+      char *pa = kalloc(); //分配物理地址
+      if (pa == 0) {
+        // printf("usertrap(): out of memory!\n");
+        // printf("usertrap(): unexpected fault_va pages %d, current allocation pages %d\n", fault_va / PGSIZE, p->sz / PGSIZE);
+        p->killed = 1; // 如果分配失败，设置进程被杀死
+      } else {
+        // 初始化申请页
+        memset(pa, 0, PGSIZE);
+        // 将物理页映射到用户页表
+        if (mappages(p->pagetable, PGROUNDDOWN(fault_va), PGSIZE, (uint64)pa, PTE_R | PTE_W | PTE_X | PTE_U) != 0) {
+          // 如果映射失败，释放物理页
+          kfree(pa);
+          printf("usertrap(): mappages failed for fault_va %p pid=%d\n", fault_va, p->pid);
+          p->killed = 1; // 设置进
+        }
+      }
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

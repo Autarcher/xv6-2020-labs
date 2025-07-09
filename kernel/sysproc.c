@@ -46,9 +46,35 @@ sys_sbrk(void)
 
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
+  struct proc *p = myproc();
+  addr = p->sz;
+  uint64 sz = p->sz;
+  if (n > 0) {
+    p->sz += n; 
+    // printf("sys_sbrk: deallocating %d bytes, current lazy allocation size %d, residus sz %d\n", n, p->sz, p->sz + n);
+  } else if (sz + n >= 0) {
+    // printf("sys_sbrk: deallocating %d bytes, current lazy allocation size %d, residus sz %d\n", n, p->sz, p->sz + n);
+    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    p->sz = sz;
+  } else {
+    // printf("sys_sbrk: invalid size %d, current lazy allocation size %d\n", n, p->sz);
+    return -1;
+  }
+  return addr;
+}
+
+uint64
+sys_sbrk_(void)
+{
+  int addr;
+  int n;
+
+  if(argint(0, &n) < 0)
+    return -1;
+  addr = myproc()->sz;  
   if(growproc(n) < 0)
     return -1;
+  myproc()->sz += n;
   return addr;
 }
 

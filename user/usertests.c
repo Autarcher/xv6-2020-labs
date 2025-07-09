@@ -2225,6 +2225,7 @@ sbrkarg(char *s)
   int fd, n;
 
   a = sbrk(PGSIZE);
+  a[0] = 1;  // trigger allocation
   fd = open("sbrk", O_CREATE|O_WRONLY);
   unlink("sbrk");
   if(fd < 0)  {
@@ -2239,6 +2240,7 @@ sbrkarg(char *s)
 
   // test writes to allocated memory
   a = sbrk(PGSIZE);
+  a[0] = 1;  // trigger allocation
   if(pipe((int *) a) != 0){
     printf("%s: pipe() failed\n", s);
     exit(1);
