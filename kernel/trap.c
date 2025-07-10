@@ -88,6 +88,7 @@ usertrap(void)
       // 设置trapframe的寄存器内容
       p->trapframe->epc = (uint64)p->alarm_handler; // 设置
       p->ticks_count = 0; // 重置滴答数
+      p->trapframe->a0 = p->alarm_arg; // 设置报警处理函数的参数
     }
     // --end add
     yield();

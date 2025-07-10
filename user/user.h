@@ -25,7 +25,8 @@ int sleep(int);
 int uptime(void);
 
 // alarm system calls系统调用
-int sigalarm(int ticks, void (*handler)());
+// int sigalarm(int ticks, void (*handler)());
+int sigalarm(int ticks, void (*handler)(), int arg);
 int sigreturn(void);
 
 

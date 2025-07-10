@@ -111,4 +111,6 @@ struct proc {
 
   int is_alarming; // 是否正在报警
   struct trampoline *alarm_trapframe; // 报警时的trapframe
+
+  int alarm_arg; // 报警处理函数的参数
 };

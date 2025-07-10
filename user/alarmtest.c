@@ -45,14 +45,14 @@ test0()
   int i;
   printf("test0 start\n");
   count = 0;
-  sigalarm(2, periodic);
+  sigalarm(2, periodic, 0);
   for(i = 0; i < 1000*500000; i++){
     if((i % 1000000) == 0)
       write(2, ".", 1);
     if(count > 0)
       break;
   }
-  sigalarm(0, 0);
+  sigalarm(0, 0, 0);
   if(count > 0){
     printf("test0 passed\n");
   } else {
@@ -84,7 +84,7 @@ test1()
   printf("test1 start\n");
   count = 0;
   j = 0;
-  sigalarm(2, periodic);
+  sigalarm(2, periodic, 0);
   for(i = 0; i < 500000000; i++){
     if(count >= 10)
       break;
@@ -121,7 +121,7 @@ test2()
   }
   if (pid == 0) {
     count = 0;
-    sigalarm(2, slow_handler);
+    sigalarm(2, slow_handler, 0);
     for(i = 0; i < 1000*500000; i++){
       if((i % 1000000) == 0)
         write(2, ".", 1);
@@ -152,6 +152,6 @@ slow_handler()
   for (int i = 0; i < 1000*500000; i++) {
     asm volatile("nop"); // avoid compiler optimizing away loop
   }
-  sigalarm(0, 0);
+  sigalarm(0, 0, 0);
   sigreturn();
 }

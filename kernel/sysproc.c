@@ -102,13 +102,34 @@ sys_uptime(void)
 
 // 设置Alarm
 uint64
-sys_sigalarm(void) {
+sys_sigalarm_(void) {
   if(argint(0, &myproc()->alarm_interval) < 0 ||
     argaddr(1, (uint64*)&myproc()->alarm_handler) < 0)
     return -1;
 
   return 0;
 }
+
+// sysproc.c 带参数的
+uint64
+sys_sigalarm(void)
+{
+  int interval;
+  uint64 handler;
+  int arg;
+
+  if(argint(0, &interval) < 0 ||
+     argaddr(1, &handler) < 0 ||
+     argint(2, &arg) < 0)
+    return -1;
+
+  struct proc *p = myproc();
+  p->alarm_interval = interval;
+  p->alarm_handler = (void(*)())handler;
+  p->alarm_arg = arg;  // 新增字段
+  return 0;
+}
+
 
 uint64
 sys_sigreturn(void) {
