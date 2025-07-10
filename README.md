@@ -8,12 +8,12 @@
 
 参考这个网址下载xv6仓库（你也可用参考官网）：
 
-2020年的课程:https://xv6.dgs.zone/labs/requirements/lab1.html  
+2020年的课程中文版:https://xv6.dgs.zone/labs/requirements/lab1.html  
 
-> MIT的xv6课程官网:https://pdos.csail.mit.edu/6.S081
+> MIT的xv6课程官网: https://pdos.csail.mit.edu/6.S081
 >
-> 实验内容总览https://github.com/YHaoNan/xv6-2020-labs
-
+> 实验内容总览: https://github.com/YHaoNan/xv6-2020-labs
+> 实验实践网址: https://github.com/whileskies/xv6-labs-2020/tree/main
 ### rqeuriment
 
 1.qemu版本需求为5.1.0
