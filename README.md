@@ -14,7 +14,7 @@
 >
 > 实验内容总览: https://github.com/YHaoNan/xv6-2020-labs
 > 
-> 实验实践网址: https://github.com/whileskies/xv6-labs-2020/tree/main
+> 实验实践参考网址: https://github.com/whileskies/xv6-labs-2020/tree/main
 ### rqeuriment
 
 1.qemu版本需求为5.1.0
