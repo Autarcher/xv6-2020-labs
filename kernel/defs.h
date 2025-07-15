@@ -63,6 +63,8 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+uint16          get_pg_rfc(uint64 pa); // 得到页面的引用计数
+void            set_pg_rfc(uint64 pa, uint16 rfc); // 设置页面的
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -171,6 +173,7 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+int             cow (uint64 va, struct proc *p); // 添加copy on write的函数
 
 // plic.c
 void            plicinit(void);

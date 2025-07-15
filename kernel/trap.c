@@ -37,6 +37,7 @@ void
 usertrap(void)
 {
   int which_dev = 0;
+  int ret = 0;
 
   if((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
@@ -67,6 +68,13 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+  } else if (r_scause() == 15) { // page fault
+    uint64 stval = r_stval();
+    ret = cow(stval, p);
+    if (ret != 0) {
+      p->killed = 1; // 如果cow失败，设置进程被杀死
+      printf("usertrap(): cow failed at stval=%p pid=%d, cow return %d\n", stval, p->pid, ret);
+    }
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());

@@ -9,6 +9,9 @@
 #include "riscv.h"
 #include "defs.h"
 
+uint16 pgs_rfc[(PHYSTOP - KERNBASE) / PGSIZE]; // 为每个页面设置引用计数
+struct spinlock rfc_lock; // 初始化引用计数锁
+
 void freerange(void *pa_start, void *pa_end);
 
 extern char end[]; // first address after kernel.
@@ -23,10 +26,24 @@ struct {
   struct run *freelist;
 } kmem;
 
+// 设置和获取引用计数的函数
+// 得到页面的引用计数
+uint16
+get_pg_rfc(uint64 pa) {
+  return pgs_rfc[(pa - KERNBASE) >> 12];
+}
+
+// 设置页面的引用计数
+void
+set_pg_rfc(uint64 pa, uint16 rfc) {
+  pgs_rfc[(pa - KERNBASE) >> 12] = rfc;
+}
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&rfc_lock, "rfc_lock");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -43,6 +60,7 @@ freerange(void *pa_start, void *pa_end)
 // which normally should have been returned by a
 // call to kalloc().  (The exception is when
 // initializing the allocator; see kinit above.)
+// 修改当前页面的引用计数 <= 1 时删除页面吗，大于1时仅仅 -1 
 void
 kfree(void *pa)
 {
@@ -51,6 +69,16 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
+  // 如果页面的引用计数大于1，则仅减少引用计数
+  acquire(&rfc_lock);
+  uint16 ref = get_pg_rfc((uint64)pa);
+  if (ref > 1) {
+    set_pg_rfc((uint64)pa, ref - 1);
+    release(&rfc_lock);
+    return; // 仅减少引用计数，不释放页面
+  }
+  release(&rfc_lock);
+  // 如果页面的引用计数为1，则释放页面
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
@@ -76,7 +104,11 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
+  if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    // 设置页面的引用计数为1
+    set_pg_rfc((uint64)r, 1);
+  }
+    
   return (void*)r;
 }

@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -14,6 +16,8 @@ pagetable_t kernel_pagetable;
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
+
+extern struct spinlock rfc_lock; // 用于引用计数的锁
 
 /*
  * create a direct-map page table for the kernel.
@@ -306,7 +310,7 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+uvmcopy_(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
@@ -334,6 +338,36 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   uvmunmap(new, 0, i / PGSIZE, 1);
   return -1;
 }
+// 为COW准备的uvmcopy函数
+int
+uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+{
+  pte_t *pte;
+  uint64 pa, i;
+  uint flags;
+
+  for(i = 0; i < sz; i += PGSIZE){
+    if((pte = walk(old, i, 0)) == 0)
+      panic("uvmcopy: pte should exist");
+    if((*pte & PTE_V) == 0)
+      panic("uvmcopy: page not present");
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte);
+    // 如果是可写的页面，则需要将其标记为COW
+    *pte = *pte & ~PTE_W;
+    *pte = *pte | PTE_COW;
+    set_pg_rfc(pa, get_pg_rfc(pa) + 1);
+    if(mappages(new, i, PGSIZE, pa, (flags & ~PTE_W) | PTE_COW) != 0) {
+      set_pg_rfc(pa, get_pg_rfc(pa) - 1);
+      goto err;
+    }
+  }
+  return 0;
+
+ err:
+  uvmunmap(new, 0, i / PGSIZE, 0);
+  return -1;
+}
 
 // mark a PTE invalid for user access.
 // used by exec for the user stack guard page.
@@ -351,6 +385,11 @@ uvmclear(pagetable_t pagetable, uint64 va)
 // Copy from kernel to user.
 // Copy len bytes from src to virtual address dstva in a given page table.
 // Return 0 on success, -1 on error.
+/*
+* 当父进程或子进程调用如read()之类的系统调用，将内核数据写入用户地址空间，如果该地址实
+* 际的物理页为共享页的话，也会发生错误，但是出错时内核正在执行系统调用，不会产生usertrap，
+* 因此需要在vm.c/copyout()中增加COW的代码, 同时不用判断cow的返回值因为可能页已经分配了会返回非0值
+*/
 int
 copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
@@ -361,6 +400,33 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
+    cow(va0, myproc()); // 添加COW处理 
+    pa0 = walkaddr(pagetable, va0);
+
+    n = PGSIZE - (dstva - va0);
+    if(n > len)
+      n = len;
+    memmove((void *)(pa0 + (dstva - va0)), src, n);
+
+    len -= n;
+    src += n;
+    dstva = va0 + PGSIZE;
+  }
+  return 0;
+}
+int
+copyout_(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
+{
+  uint64 n, va0, pa0;
+
+  while(len > 0){
+    va0 = PGROUNDDOWN(dstva);
+    pa0 = walkaddr(pagetable, va0);
+    if(pa0 == 0)
+      return -1;
+    cow(va0, myproc());
+    pa0 = walkaddr(pagetable, va0);
+
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
@@ -439,4 +505,35 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// 添加copy on write的函数
+int
+cow(uint64 va, struct proc *p)
+{
+  pte_t *pte = walk(p->pagetable, va, 0);
+  if(*pte & PTE_COW) {
+    char *mem;
+    uint64 pa = PTE2PA(*pte);
+
+    if((mem = kalloc()) == 0) 
+      return -1;
+
+    memmove(mem, (char*)pa, PGSIZE);
+    acquire(&rfc_lock);
+    uint16 rfc = get_pg_rfc(pa);
+    rfc--;
+    set_pg_rfc(pa, rfc);
+    release(&rfc_lock);
+    if (rfc == 0) {
+      kfree((char *)pa);
+    }
+
+    pte_t newpte = PA2PTE(mem);
+    newpte = ((newpte | PTE_FLAGS(*pte)) | PTE_W) & ~PTE_COW;
+    *pte = newpte;
+  } else 
+    return -2;
+
+  return 0;
 }
